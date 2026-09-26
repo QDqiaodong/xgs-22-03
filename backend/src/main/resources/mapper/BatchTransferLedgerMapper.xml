@@ -21,4 +21,52 @@
         WHERE id = #{id}
           AND settle_status = 'OPEN'
     </update>
+
+    <!-- 删除分区阻断：未核销划转流水引用（源分区取明细快照，目标分区取流水头；同流水同分区去重） -->
+    <select id="selectOpenTransferBlocksByZoneIds"
+            resultType="com.example.lightmanager.dto.ZoneReferenceBlockDTO">
+        SELECT DISTINCT * FROM (
+            SELECT
+                'TRANSFER_LEDGER' AS type,
+                '未核销划转流水' AS typeText,
+                l.id AS refId,
+                l.batch_no AS refNo,
+                d.source_zone_id AS zoneId,
+                gz.zone_name AS zoneName,
+                l.settle_status AS status,
+                '未核销' AS statusText,
+                CONCAT('划转流水[', l.batch_no, ']的源分区仍指向该分区且尚未核销，请先核销流水后再删除') AS detail,
+                DATE_FORMAT(l.transfer_time, '%Y-%m-%d %H:%i:%s') AS bizTime
+            FROM batch_transfer_ledger l
+            INNER JOIN ledger_detail d ON d.ledger_id = l.id
+            LEFT JOIN garage_zone gz ON gz.id = d.source_zone_id
+            WHERE l.settle_status = 'OPEN'
+              AND d.source_zone_id IN
+              <foreach collection="zoneIds" item="zoneId" open="(" separator="," close=")">
+                  #{zoneId}
+              </foreach>
+
+            UNION ALL
+
+            SELECT
+                'TRANSFER_LEDGER' AS type,
+                '未核销划转流水' AS typeText,
+                l.id AS refId,
+                l.batch_no AS refNo,
+                l.target_zone_id AS zoneId,
+                gz2.zone_name AS zoneName,
+                l.settle_status AS status,
+                '未核销' AS statusText,
+                CONCAT('划转流水[', l.batch_no, ']的目标分区仍指向该分区且尚未核销，请先核销流水后再删除') AS detail,
+                DATE_FORMAT(l.transfer_time, '%Y-%m-%d %H:%i:%s') AS bizTime
+            FROM batch_transfer_ledger l
+            LEFT JOIN garage_zone gz2 ON gz2.id = l.target_zone_id
+            WHERE l.settle_status = 'OPEN'
+              AND l.target_zone_id IN
+              <foreach collection="zoneIds" item="zoneId" open="(" separator="," close=")">
+                  #{zoneId}
+              </foreach>
+        ) t
+        ORDER BY t.bizTime DESC, t.refId DESC, t.zoneId
+    </select>
 </mapper>

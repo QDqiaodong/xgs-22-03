@@ -188,6 +188,10 @@ ALTER TABLE batch_transfer_ledger
     ADD COLUMN settled_at DATETIME COMMENT '核销时间',
     ADD INDEX idx_settle_status (settle_status);
 
+-- 分区层级乐观锁版本号：编辑/换父级必须携带读取时的版本，后确认的过期提交收到 409 冲突
+ALTER TABLE garage_zone
+    ADD COLUMN version INT NOT NULL DEFAULT 0 COMMENT '层级乐观锁版本号: 换父级/编辑均带版本CAS';
+
 INSERT IGNORE INTO garage_zone (zone_code, zone_name, parent_id, level, sort_order, status) VALUES
 ('ZONE-A', 'A区车库', 0, 1, 1, 1),
 ('ZONE-B', 'B区车库', 0, 1, 2, 1),

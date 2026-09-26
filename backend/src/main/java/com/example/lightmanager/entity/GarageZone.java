@@ -25,7 +25,10 @@ public class GarageZone {
     private Integer sortOrder;
     
     private Integer status;
-    
+
+    /** 层级乐观锁版本号：编辑/换父级必须携带读取时的版本，服务端 CAS */
+    private Integer version;
+
     private LocalDateTime createdAt;
     
     private LocalDateTime updatedAt;
@@ -55,6 +58,8 @@ public class GarageZone {
     public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }
+    public Integer getVersion() { return version; }
+    public void setVersion(Integer version) { this.version = version; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

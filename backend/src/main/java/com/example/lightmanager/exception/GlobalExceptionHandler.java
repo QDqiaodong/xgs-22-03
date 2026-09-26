@@ -33,6 +33,20 @@ public class GlobalExceptionHandler {
         return response;
     }
 
+    /** 分区删除引用阻断：返回 412 与逐条阻断原因（含具体冲突分区） */
+    @ExceptionHandler(ZoneReferenceBlockException.class)
+    public ResponseDTO<Object> handleZoneReferenceBlock(ZoneReferenceBlockException e) {
+        ResponseDTO<Object> response = ResponseDTO.error(412, e.getMessage());
+        response.setData(e.getBlocks());
+        return response;
+    }
+
+    /** 分区层级冲突（自挂 / 挂到后代形成环）：返回 400，消息中给出具体冲突分区 */
+    @ExceptionHandler(ZoneHierarchyConflictException.class)
+    public ResponseDTO<Void> handleZoneHierarchyConflict(ZoneHierarchyConflictException e) {
+        return ResponseDTO.error(400, e.getMessage());
+    }
+
     /** 业务规则异常 */
     @ExceptionHandler(BusinessException.class)
     public ResponseDTO<Void> handleBusiness(BusinessException e) {
