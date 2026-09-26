@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS garage_zone (
     level INT DEFAULT 1 COMMENT '层级',
     sort_order INT DEFAULT 0 COMMENT '排序',
     status TINYINT DEFAULT 1 COMMENT '状态: 0禁用 1启用',
+    version INT NOT NULL DEFAULT 0 COMMENT '层级版本号(乐观锁): 换父级/编辑后自增, 过期树提交返回409',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     INDEX idx_parent_id (parent_id),
@@ -182,11 +183,33 @@ CREATE TABLE IF NOT EXISTS light_archive_record (
     CONSTRAINT fk_archive_log_light FOREIGN KEY (light_group_id) REFERENCES light_group(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='灯组报废归档历史表(同一条链路追加不可改)';
 
-ALTER TABLE batch_transfer_ledger
-    ADD COLUMN settle_status VARCHAR(20) NOT NULL DEFAULT 'OPEN' COMMENT '流水核销状态: OPEN未核销 CLOSED已核销(解除归档引用)',
-    ADD COLUMN settled_by VARCHAR(50) COMMENT '核销人',
-    ADD COLUMN settled_at DATETIME COMMENT '核销时间',
-    ADD INDEX idx_settle_status (settle_status);
+-- 既有库升级脚本：以下 ALTER 在全新库上跳过、在旧库上补列，重复执行安全
+-- 1) 划转流水核销字段（旧库补列）
+SET @ddl := (SELECT IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'batch_transfer_ledger'
+       AND COLUMN_NAME = 'settle_status') = 0,
+    "ALTER TABLE batch_transfer_ledger
+        ADD COLUMN settle_status VARCHAR(20) NOT NULL DEFAULT 'OPEN' COMMENT '流水核销状态: OPEN未核销 CLOSED已核销(解除归档引用)',
+        ADD COLUMN settled_by VARCHAR(50) COMMENT '核销人',
+        ADD COLUMN settled_at DATETIME COMMENT '核销时间',
+        ADD INDEX idx_settle_status (settle_status)",
+    'SELECT 1'));
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- 2) 分区层级乐观锁版本号（旧库补列）
+SET @ddl := (SELECT IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'garage_zone'
+       AND COLUMN_NAME = 'version') = 0,
+    "ALTER TABLE garage_zone
+        ADD COLUMN version INT NOT NULL DEFAULT 0 COMMENT '层级版本号(乐观锁): 换父级/编辑后自增, 过期树提交返回409' AFTER status",
+    'SELECT 1'));
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 INSERT IGNORE INTO garage_zone (zone_code, zone_name, parent_id, level, sort_order, status) VALUES
 ('ZONE-A', 'A区车库', 0, 1, 1, 1),

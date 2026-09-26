@@ -25,7 +25,10 @@ public class GarageZone {
     private Integer sortOrder;
     
     private Integer status;
-    
+
+    /** 层级版本号：每次编辑/换父级自增，前端持过期版本提交时返回 409 */
+    private Integer version;
+
     private LocalDateTime createdAt;
     
     private LocalDateTime updatedAt;
@@ -55,6 +58,8 @@ public class GarageZone {
     public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }
+    public Integer getVersion() { return version; }
+    public void setVersion(Integer version) { this.version = version; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

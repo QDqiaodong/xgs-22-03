@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.lightmanager.mapper.GarageZoneMapper">
-    
+
     <select id="selectTreeByParentId" resultType="com.example.lightmanager.entity.GarageZone">
-        SELECT * FROM garage_zone 
+        SELECT * FROM garage_zone
         WHERE parent_id = #{parentId} AND status = 1
-        ORDER BY sort_order ASC
+        ORDER BY sort_order ASC, id ASC
     </select>
-    
+
     <select id="selectAllZones" resultType="com.example.lightmanager.entity.GarageZone">
-        SELECT * FROM garage_zone WHERE status = 1 ORDER BY level ASC, sort_order ASC
+        SELECT * FROM garage_zone WHERE status = 1 ORDER BY level ASC, sort_order ASC, id ASC
     </select>
 
     <select id="selectZoneLightCounts" resultType="java.util.LinkedHashMap">
@@ -19,4 +19,105 @@
         FROM light_group
         GROUP BY zone_id
     </select>
+
+    <!-- 层级变更事务内取全表最新父子关系并加锁，保证环校验与写入之间没有他人提交 -->
+    <select id="selectAllZonesForUpdate" resultType="com.example.lightmanager.entity.GarageZone">
+        SELECT * FROM garage_zone ORDER BY id ASC FOR UPDATE
+    </select>
+
+    <!-- 乐观锁更新：只有版本号未被他人改动才生效，版本自增 -->
+    <update id="casUpdateZone">
+        UPDATE garage_zone
+        SET zone_code = #{zone.zoneCode},
+            zone_name = #{zone.zoneName},
+            parent_id = #{zone.parentId},
+            level = #{zone.level},
+            sort_order = #{zone.sortOrder},
+            status = #{zone.status},
+            version = version + 1
+        WHERE id = #{zone.id}
+          AND version = #{zone.version}
+    </update>
+
+    <update id="updateLevel">
+        UPDATE garage_zone SET level = #{level} WHERE id = #{id}
+    </update>
+
+    <update id="bumpVersionByIds">
+        UPDATE garage_zone SET version = version + 1
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <!-- ===== 删除分区阻断原因 ===== -->
+
+    <select id="selectChildZoneBlocks" resultType="com.example.lightmanager.dto.ZoneDeleteBlockDTO">
+        SELECT
+            'CHILD_ZONE' AS type,
+            '子分区' AS typeText,
+            z.id AS zoneId,
+            z.zone_name AS zoneName,
+            z.zone_code AS refNo,
+            CONCAT('仍存在子分区[', z.zone_name, '（', z.zone_code, '）]，请先清空或删除全部子分区') AS detail
+        FROM garage_zone z
+        WHERE z.parent_id = #{parentId}
+        ORDER BY z.sort_order ASC, z.id ASC
+    </select>
+
+    <select id="selectLightGroupBlocks" resultType="com.example.lightmanager.dto.ZoneDeleteBlockDTO">
+        SELECT
+            'LIGHT_GROUP' AS type,
+            '灯组引用' AS typeText,
+            g.zone_id AS zoneId,
+            z.zone_name AS zoneName,
+            g.group_code AS refNo,
+            CONCAT('分区[', z.zone_name, ']下仍登记灯组[', g.group_code, ']，请先将灯组划转至其他分区') AS detail
+        FROM light_group g
+        LEFT JOIN garage_zone z ON z.id = g.zone_id
+        WHERE g.zone_id IN
+        <foreach collection="zoneIds" item="zoneId" open="(" separator="," close=")">
+            #{zoneId}
+        </foreach>
+        ORDER BY g.zone_id ASC, g.group_code ASC
+        LIMIT #{limit}
+    </select>
+
+    <!--
+      未核销划转流水：流水的目标分区、源分区串(source_zone_ids)或任一明细的原/新分区
+      指向待删除分区或其后代，即视为仍被引用，必须先核销。
+    -->
+    <select id="selectOpenLedgerBlocks" resultType="com.example.lightmanager.dto.ZoneDeleteBlockDTO">
+        SELECT
+            'OPEN_TRANSFER_LEDGER' AS type,
+            '未核销划转流水' AS typeText,
+            ref.zone_id AS zoneId,
+            z.zone_name AS zoneName,
+            l.batch_no AS refNo,
+            CONCAT('未核销划转流水[', l.batch_no, ']仍引用分区[',
+                   COALESCE(z.zone_name, CONCAT('#', ref.zone_id)),
+                   ']，请先在操作台账中核销') AS detail
+        FROM (
+            SELECT l.id, l.target_zone_id AS zone_id FROM batch_transfer_ledger l
+            WHERE l.settle_status = 'OPEN' AND l.target_zone_id IN
+            <foreach collection="zoneIds" item="zoneId" open="(" separator="," close=")">#{zoneId}</foreach>
+            UNION
+            SELECT l.id, d.source_zone_id AS zone_id FROM batch_transfer_ledger l
+            INNER JOIN ledger_detail d ON d.ledger_id = l.id
+            WHERE l.settle_status = 'OPEN' AND d.source_zone_id IN
+            <foreach collection="zoneIds" item="zoneId" open="(" separator="," close=")">#{zoneId}</foreach>
+            UNION
+            SELECT l.id, d.target_zone_id AS zone_id FROM batch_transfer_ledger l
+            INNER JOIN ledger_detail d ON d.ledger_id = l.id
+            WHERE l.settle_status = 'OPEN' AND d.target_zone_id IN
+            <foreach collection="zoneIds" item="zoneId" open="(" separator="," close=")">#{zoneId}</foreach>
+        ) ref
+        INNER JOIN batch_transfer_ledger l ON l.id = ref.id
+        LEFT JOIN garage_zone z ON z.id = ref.zone_id
+        GROUP BY ref.id, ref.zone_id, z.zone_name, l.batch_no
+        ORDER BY l.batch_no ASC
+        LIMIT #{limit}
+    </select>
+
 </mapper>

@@ -33,6 +33,14 @@ public class GlobalExceptionHandler {
         return response;
     }
 
+    /** 删除分区阻断：返回 412 与逐条阻断原因（子分区/灯组/未核销流水），前端直接列出 */
+    @ExceptionHandler(ZoneDeleteBlockException.class)
+    public ResponseDTO<Object> handleZoneDeleteBlock(ZoneDeleteBlockException e) {
+        ResponseDTO<Object> response = ResponseDTO.error(412, e.getMessage());
+        response.setData(e.getBlocks());
+        return response;
+    }
+
     /** 业务规则异常 */
     @ExceptionHandler(BusinessException.class)
     public ResponseDTO<Void> handleBusiness(BusinessException e) {
