@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.lightmanager.mapper.ArchiveFlowMapper">
+
+    <!-- ===== 生命周期 CAS 更新 ===== -->
+
+    <select id="selectLightForUpdate" resultType="com.example.lightmanager.entity.LightGroup">
+        SELECT * FROM light_group WHERE id = #{id} FOR UPDATE
+    </select>
+
+    <update id="casSubmit">
+        UPDATE light_group
+        SET archive_status = 'PENDING_REVIEW',
+            scrap_reason = #{scrapReason},
+            supplement_note = NULL,
+            photo_note = #{photoNote},
+            effective_date = #{effectiveDate},
+            archive_applicant = #{operator},
+            archive_applied_at = #{time},
+            archive_reviewer = NULL,
+            archive_review_opinion = NULL,
+            archive_archived_at = NULL,
+            archive_version = archive_version + 1,
+            updated_at = #{time}
+        WHERE id = #{id}
+          AND archive_version = #{version}
+          AND archive_status = 'ACTIVE'
+    </update>
+
+    <update id="casResubmit">
+        UPDATE light_group
+        SET archive_status = 'PENDING_REVIEW',
+            supplement_note = #{supplementNote},
+            archive_applicant = #{operator},
+            archive_applied_at = #{time},
+            archive_reviewer = NULL,
+            archive_review_opinion = NULL,
+            archive_version = archive_version + 1,
+            updated_at = #{time}
+        WHERE id = #{id}
+          AND archive_version = #{version}
+          AND archive_status = 'RETURNED'
+    </update>
+
+    <update id="casReturn">
+        UPDATE light_group
+        SET archive_status = 'RETURNED',
+            archive_reviewer = #{operator},
+            archive_review_opinion = #{reason},
+            archive_version = archive_version + 1,
+            updated_at = #{time}
+        WHERE id = #{id}
+          AND archive_version = #{version}
+          AND archive_status = 'PENDING_REVIEW'
+    </update>
+
+    <update id="casArchive">
+        UPDATE light_group
+        SET archive_status = 'ARCHIVED',
+            archive_reviewer = #{operator},
+            archive_review_opinion = #{opinion},
+            archive_archived_at = #{time},
+            archive_version = archive_version + 1,
+            updated_at = #{time}
+        WHERE id = #{id}
+          AND archive_version = #{version}
+          AND archive_status = 'PENDING_REVIEW'
+    </update>
+
+    <!-- ===== 归档历史 ===== -->
+
+    <insert id="insertRecord" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO light_archive_record
+            (light_group_id, round, action_type, scrap_reason, supplement_note, photo_note,
+             effective_date, opinion, operator, operated_at,
+             snapshot_group_code, snapshot_zone_id, snapshot_zone_name, from_version, to_version)
+        VALUES
+            (#{lightGroupId}, #{round}, #{actionType}, #{scrapReason}, #{supplementNote}, #{photoNote},
+             #{effectiveDate}, #{opinion}, #{operator}, #{operatedAt},
+             #{snapshotGroupCode}, #{snapshotZoneId}, #{snapshotZoneName}, #{fromVersion}, #{toVersion})
+    </insert>
+
+    <select id="selectRecordsByLightGroupId"
+            resultType="com.example.lightmanager.entity.LightArchiveRecord">
+        SELECT * FROM light_archive_record
+        WHERE light_group_id = #{lightGroupId}
+        ORDER BY operated_at ASC, id ASC
+    </select>
+
+    <select id="selectMaxRound" resultType="java.lang.Integer">
+        SELECT COALESCE(MAX(round), 0) FROM light_archive_record WHERE light_group_id = #{lightGroupId}
+    </select>
+
+    <!-- ===== 归档前引用检查 ===== -->
+
+    <!-- 未关闭（暂存未提交）的巡检批次 -->
+    <select id="selectOpenInspectionBatches" resultType="com.example.lightmanager.dto.ArchiveReferenceBlockDTO">
+        SELECT
+            'INSPECTION_BATCH' AS type,
+            '未关闭巡检批次' AS typeText,
+            b.id AS refId,
+            b.batch_no AS refNo,
+            i.group_code AS groupCode,
+            b.status AS status,
+            '暂存未提交' AS statusText,
+            CONCAT('巡检批次[', b.batch_no, ']尚未提交/关闭，仍包含该灯组；请先完成提交或处理该批次') AS detail,
+            DATE_FORMAT(b.started_at, '%Y-%m-%d %H:%i:%s') AS bizTime
+        FROM inspection_batch b
+        INNER JOIN inspection_item i ON i.batch_id = b.id AND i.light_group_id = #{lightGroupId}
+        WHERE b.status = 'DRAFT'
+        ORDER BY b.started_at DESC, b.id DESC
+    </select>
+
+    <!-- 未关闭的异常处置记录 -->
+    <select id="selectOpenAnomalies" resultType="com.example.lightmanager.dto.ArchiveReferenceBlockDTO">
+        SELECT
+            'INSPECTION_ANOMALY' AS type,
+            '异常处置记录' AS typeText,
+            a.id AS refId,
+            a.batch_no AS refNo,
+            a.group_code AS groupCode,
+            a.status AS status,
+            CASE a.status
+                WHEN 'PENDING_REVIEW' THEN '待复核'
+                WHEN 'RETURNED' THEN '已退回'
+                WHEN 'CONFIRMED' THEN '已确认'
+                WHEN 'PROCESSING' THEN '处理中'
+                ELSE a.status
+            END AS statusText,
+            CONCAT('异常处置记录[', a.batch_no, ']尚未关闭，请先完成处置闭环后再归档') AS detail,
+            DATE_FORMAT(a.reported_at, '%Y-%m-%d %H:%i:%s') AS bizTime
+        FROM inspection_anomaly a
+        WHERE a.light_group_id = #{lightGroupId}
+          AND a.status &lt;&gt; 'CLOSED'
+        ORDER BY a.reported_at DESC, a.id DESC
+    </select>
+
+    <!-- 未核销的划转流水 -->
+    <select id="selectOpenTransferLedgers" resultType="com.example.lightmanager.dto.ArchiveReferenceBlockDTO">
+        SELECT
+            'TRANSFER_LEDGER' AS type,
+            '划转流水' AS typeText,
+            l.id AS refId,
+            l.batch_no AS refNo,
+            lg.group_code AS groupCode,
+            l.settle_status AS status,
+            '未核销' AS statusText,
+            CONCAT('划转流水[', l.batch_no, ']尚未核销，请在操作台账中核销后再归档') AS detail,
+            DATE_FORMAT(l.transfer_time, '%Y-%m-%d %H:%i:%s') AS bizTime
+        FROM batch_transfer_ledger l
+        INNER JOIN ledger_detail d ON d.ledger_id = l.id AND d.light_group_id = #{lightGroupId}
+        LEFT JOIN light_group lg ON lg.id = d.light_group_id
+        WHERE l.settle_status = 'OPEN'
+        ORDER BY l.transfer_time DESC, l.id DESC
+    </select>
+
+</mapper>

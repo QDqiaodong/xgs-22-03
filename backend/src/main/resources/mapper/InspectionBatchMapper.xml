@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.lightmanager.mapper.InspectionBatchMapper">
+
+    <select id="selectBatchPage" resultType="com.example.lightmanager.entity.InspectionBatch">
+        SELECT * FROM inspection_batch
+        WHERE 1=1
+        <if test="batchNo != null and batchNo != ''">AND batch_no LIKE CONCAT('%', #{batchNo}, '%')</if>
+        <if test="inspector != null and inspector != ''">AND inspector LIKE CONCAT('%', #{inspector}, '%')</if>
+        <if test="status != null and status != ''">AND status = #{status}</if>
+        <if test="startTime != null">AND started_at &gt;= #{startTime}</if>
+        <if test="endTime != null">AND started_at &lt;= #{endTime}</if>
+        ORDER BY started_at DESC, id DESC
+    </select>
+</mapper>

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.lightmanager.mapper.LedgerDetailMapper">
+
+    <insert id="batchInsert">
+        INSERT INTO ledger_detail (ledger_id, light_group_id, source_zone_id, target_zone_id)
+        VALUES
+        <foreach collection="details" item="detail" separator=",">
+            (#{detail.ledgerId}, #{detail.lightGroupId}, #{detail.sourceZoneId}, #{detail.targetZoneId})
+        </foreach>
+    </insert>
+
+    <!--
+      流水详情：明细保留划转当时的源/目标分区ID（历史不可改）；
+      灯组编号归档后不可编辑故与当时一致；归档状态取当前台账，归档完成后此处共同显示“已归档”。
+    -->
+    <select id="selectByLedgerId" resultType="com.example.lightmanager.entity.LedgerDetail">
+        SELECT
+            d.id,
+            d.ledger_id,
+            d.light_group_id,
+            d.source_zone_id,
+            d.target_zone_id,
+            lg.group_code AS group_code,
+            gz_src.zone_name AS source_zone_name,
+            gz_tgt.zone_name AS target_zone_name,
+            COALESCE(lg.archive_status, 'ACTIVE') AS archive_status
+        FROM ledger_detail d
+        LEFT JOIN light_group lg ON lg.id = d.light_group_id
+        LEFT JOIN garage_zone gz_src ON gz_src.id = d.source_zone_id
+        LEFT JOIN garage_zone gz_tgt ON gz_tgt.id = d.target_zone_id
+        WHERE d.ledger_id = #{ledgerId}
+        ORDER BY d.id ASC
+    </select>
+</mapper>

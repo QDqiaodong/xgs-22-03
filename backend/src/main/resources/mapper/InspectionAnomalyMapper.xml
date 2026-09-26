@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.lightmanager.mapper.InspectionAnomalyMapper">
+
+    <resultMap id="AnomalyResultMap" type="com.example.lightmanager.entity.InspectionAnomaly">
+        <id property="id" column="id"/>
+        <result property="batchId" column="batch_id"/>
+        <result property="batchNo" column="batch_no"/>
+        <result property="itemId" column="item_id"/>
+        <result property="lightGroupId" column="light_group_id"/>
+        <result property="groupCode" column="group_code"/>
+        <result property="anomalyType" column="anomaly_type"/>
+        <result property="originalDescription" column="original_description"/>
+        <result property="supplementDescription" column="supplement_description"/>
+        <result property="snapshotZoneId" column="snapshot_zone_id"/>
+        <result property="snapshotZoneName" column="snapshot_zone_name"/>
+        <result property="snapshotLocation" column="snapshot_location"/>
+        <result property="status" column="status"/>
+        <result property="reporter" column="reporter"/>
+        <result property="reportedAt" column="reported_at"/>
+        <result property="reviewer" column="reviewer"/>
+        <result property="reviewOpinion" column="review_opinion"/>
+        <result property="handlingDeadline" column="handling_deadline"/>
+        <result property="confirmedAt" column="confirmed_at"/>
+        <result property="handler" column="handler"/>
+        <result property="handlingResult" column="handling_result"/>
+        <result property="handledAt" column="handled_at"/>
+        <result property="closer" column="closer"/>
+        <result property="closedAt" column="closed_at"/>
+        <result property="version" column="version"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+        <result property="currentZoneId" column="current_zone_id"/>
+        <result property="currentZoneName" column="current_zone_name"/>
+        <result property="zoneChanged" column="zone_changed"/>
+    </resultMap>
+
+    <select id="selectAnomalyPage" resultMap="AnomalyResultMap">
+        SELECT
+            a.*,
+            gz.id AS current_zone_id,
+            gz.zone_name AS current_zone_name,
+            CASE
+                WHEN gz.id IS NULL THEN 1
+                WHEN gz.id &lt;&gt; a.snapshot_zone_id THEN 1
+                ELSE 0
+            END AS zone_changed
+        FROM inspection_anomaly a
+        LEFT JOIN light_group lg ON a.light_group_id = lg.id
+        LEFT JOIN garage_zone gz ON lg.zone_id = gz.id
+        WHERE 1=1
+        <if test="query.batchNo != null and query.batchNo != ''">
+            AND a.batch_no LIKE CONCAT('%', #{query.batchNo}, '%')
+        </if>
+        <if test="query.groupCode != null and query.groupCode != ''">
+            AND a.group_code LIKE CONCAT('%', #{query.groupCode}, '%')
+        </if>
+        <if test="query.anomalyType != null and query.anomalyType != ''">
+            AND a.anomaly_type = #{query.anomalyType}
+        </if>
+        <if test="query.status != null and query.status != ''">
+            AND a.status = #{query.status}
+        </if>
+        <if test="query.zoneId != null">
+            AND gz.id = #{query.zoneId}
+        </if>
+        <if test="query.zoneChanged != null and query.zoneChanged == true">
+            AND (gz.id IS NULL OR gz.id &lt;&gt; a.snapshot_zone_id)
+        </if>
+        ORDER BY a.reported_at DESC, a.id DESC
+    </select>
+
+    <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO inspection_anomaly
+            (batch_id, batch_no, item_id, light_group_id, group_code, anomaly_type,
+             original_description, supplement_description, snapshot_zone_id, snapshot_zone_name, snapshot_location,
+             status, reporter, reported_at, version)
+        VALUES
+        <foreach collection="anomalies" item="a" separator=",">
+            (#{a.batchId}, #{a.batchNo}, #{a.itemId}, #{a.lightGroupId}, #{a.groupCode}, #{a.anomalyType},
+             #{a.originalDescription}, #{a.supplementDescription}, #{a.snapshotZoneId}, #{a.snapshotZoneName}, #{a.snapshotLocation},
+             #{a.status}, #{a.reporter}, #{a.reportedAt}, #{a.version})
+        </foreach>
+    </insert>
+
+    <update id="casReturn">
+        UPDATE inspection_anomaly
+        SET status = 'RETURNED',
+            version = version + 1,
+            updated_at = #{time}
+        WHERE id = #{id}
+          AND version = #{version}
+          AND status = 'PENDING_REVIEW'
+    </update>
+
+    <update id="casSupplement">
+        UPDATE inspection_anomaly
+        SET status = 'PENDING_REVIEW',
+            supplement_description = #{supplementDescription},
+            version = version + 1,
+            updated_at = #{time}
+        WHERE id = #{id}
+          AND version = #{version}
+          AND status = 'RETURNED'
+    </update>
+
+    <update id="casConfirm">
+        UPDATE inspection_anomaly
+        SET status = 'CONFIRMED',
+            reviewer = #{operator},
+            review_opinion = #{reviewOpinion},
+            handling_deadline = #{deadline},
+            confirmed_at = #{time},
+            version = version + 1,
+            updated_at = #{time}
+        WHERE id = #{id}
+          AND version = #{version}
+          AND status = 'PENDING_REVIEW'
+    </update>
+
+    <update id="casResolve">
+        UPDATE inspection_anomaly
+        SET status = 'PROCESSING',
+            handler = #{operator},
+            handling_result = #{handlingResult},
+            handled_at = #{time},
+            version = version + 1,
+            updated_at = #{time}
+        WHERE id = #{id}
+          AND version = #{version}
+          AND status = 'CONFIRMED'
+    </update>
+
+    <update id="casClose">
+        UPDATE inspection_anomaly
+        SET status = 'CLOSED',
+            closer = #{operator},
+            closed_at = #{time},
+            version = version + 1,
+            updated_at = #{time}
+        WHERE id = #{id}
+          AND version = #{version}
+          AND status = 'PROCESSING'
+    </update>
+</mapper>

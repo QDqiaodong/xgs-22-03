@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.lightmanager.mapper.GarageZoneMapper">
+    
+    <select id="selectTreeByParentId" resultType="com.example.lightmanager.entity.GarageZone">
+        SELECT * FROM garage_zone 
+        WHERE parent_id = #{parentId} AND status = 1
+        ORDER BY sort_order ASC
+    </select>
+    
+    <select id="selectAllZones" resultType="com.example.lightmanager.entity.GarageZone">
+        SELECT * FROM garage_zone WHERE status = 1 ORDER BY level ASC, sort_order ASC
+    </select>
+
+    <select id="selectZoneLightCounts" resultType="java.util.LinkedHashMap">
+        SELECT zone_id AS zoneId,
+               COUNT(*) AS totalCount,
+               SUM(CASE WHEN archive_status = 'ARCHIVED' THEN 1 ELSE 0 END) AS archivedCount
+        FROM light_group
+        GROUP BY zone_id
+    </select>
+</mapper>

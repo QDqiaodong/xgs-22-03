@@ -1,0 +1,72 @@
+services:
+  mysql:
+    image: ${DOCKER_REGISTRY}mysql:8.0
+    container_name: light-manager-mysql
+    ports:
+      - "127.0.0.1:${MYSQL_PORT}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: light_manager
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: password
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./backend/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - light-manager-network
+    restart: unless-stopped
+
+  redis:
+    image: ${DOCKER_REGISTRY}redis:7.2
+    container_name: light-manager-redis
+    ports:
+      - "127.0.0.1:${REDIS_PORT}:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - light-manager-network
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: light-manager-backend
+    ports:
+      - "127.0.0.1:${BACKEND_PORT}:8127"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/light_manager?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: admin
+      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+    volumes:
+      - transfer-ledger:/var/data/transfer
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - light-manager-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: light-manager-frontend
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT}:8117"
+    networks:
+      - light-manager-network
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  redis-data:
+  transfer-ledger:
+
+networks:
+  light-manager-network:
+    driver: bridge
